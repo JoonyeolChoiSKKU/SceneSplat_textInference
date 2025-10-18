@@ -146,7 +146,9 @@ class ZeroShotSemSegTester(TesterBase):
             "confidence_threshold", confidence_threshold
         )
         self.save_feat = cfg["test"].get("save_feat", save_feat)
-        self.skip_eval = cfg["test"].get("skip_eval", skip_eval)
+
+        # whether to calculate the miou/macc metrics, requires segment or pc_segment key
+        self.skip_eval = cfg["test"].get("skip_eval", skip_eval) 
         self.pred_label_mapping = cfg["test"].get(
             "pred_label_mapping", pred_label_mapping
         )
@@ -269,6 +271,11 @@ class ZeroShotSemSegTester(TesterBase):
                 else None
             )
 
+            # check if 'segment' or 'pc_segment' exist
+            runtime_skip_eval = False
+            if segment is None and 'pc_segment' not in data_dict.keys() and not self.skip_eval:
+                runtime_skip_eval = True
+                logger.warning("self.skip_eval = False, but no segment keys exsit, will skip mIoU/mAcc calculation...")
             if (
                 os.path.isfile(pred_save_path)
                 and not self.save_feat
@@ -331,14 +338,14 @@ class ZeroShotSemSegTester(TesterBase):
                         pred_part_feat = out_dict["point_feat"][
                             "feat"
                         ]  # shape [M, feat_dim]
-                        if not self.skip_eval:
+                        if self.text_embeddings is not None:
                             logits = torch.mm(pred_part_feat, self.text_embeddings.t())
                             pred_part_prob = torch.sigmoid(logits)  # [M, num_classes]
 
                     # Accumulate into the large buffer
                     bs = 0
                     for be in offset_list:
-                        if not self.skip_eval:
+                        if self.text_embeddings is not None:
                             # sum up probabilities
                             pred[idx_part[bs:be], :] += pred_part_prob[bs:be]
                             # track coords if needed
@@ -378,14 +385,13 @@ class ZeroShotSemSegTester(TesterBase):
                     argmax_indices[max_probs < self.confidence_threshold] = ignore_index
                     pred = argmax_indices.cpu().numpy()
 
-                if "origin_segment" in data_dict:
+                if "origin_coord" in data_dict:
                     assert "inverse" in data_dict, (
                         "Inverse mapping is required to map pred to full origin_coord"
                     )
-                    pred = pred[
-                        data_dict["inverse"]
-                    ]  # shape => [original_num_points, ...]
-                    segment = data_dict["origin_segment"]
+                    pred = pred[data_dict["inverse"]]  # shape => [original_num_points, ...]
+                    if "origin_segment" in data_dict:
+                        segment = data_dict["origin_segment"]
                 if "pc_coord" in data_dict and "pc_segment" in data_dict:
                     segment = data_dict["pc_segment"]
 
@@ -463,14 +469,13 @@ class ZeroShotSemSegTester(TesterBase):
                             f"{data_name}_lidarseg.bin",
                         )
                     )
-            if self.skip_eval:
-                continue
+
             # ---------------------------------------------------------------------
             # Apply neighbor voting if enabled
             if self.enable_voting:
                 num_classes = self.num_classes
                 ignore_index = self.ignore_index
-                if "pc_coord" in data_dict and "pc_segment" in data_dict:
+                if "pc_coord" in data_dict:
                     coords = data_dict["origin_coord"]
                     query_coords = data_dict["pc_coord"]
                     pred = neighbor_voting(
@@ -500,8 +505,10 @@ class ZeroShotSemSegTester(TesterBase):
                     pred = clustering_voting(
                         pred, data_dict["origin_instance"], ignore_index
                     )
-
             np.save(pred_save_path, pred)
+
+            if self.skip_eval or runtime_skip_eval:
+                continue
             intersection, union, target = intersection_and_union(
                 pred, segment, self.num_classes, self.ignore_index
             )
@@ -537,7 +544,7 @@ class ZeroShotSemSegTester(TesterBase):
                 f"mIoU {iou:.4f} ({m_iou:.4f})"
             )
 
-        if self.skip_eval:
+        if self.skip_eval or runtime_skip_eval:
             logger.info(
                 "<<<<<<<<<<<<<<<<< Tester End, Skipped Evaluation <<<<<<<<<<<<<<<<<"
             )
