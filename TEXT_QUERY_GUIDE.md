@@ -14,6 +14,17 @@
 
 ## 1. 체크포인트 다운로드
 
+### 방법 1: 자동화 스크립트 사용 (권장)
+
+```bash
+cd /home/stevenlair/LAIR/AGI-Memory/SceneSplat
+bash scripts/download_checkpoint.sh
+```
+
+스크립트가 HuggingFace에서 체크포인트를 자동으로 다운로드합니다.
+
+### 방법 2: 수동 다운로드
+
 HuggingFace에서 사전학습된 모델을 다운로드합니다:
 
 ```bash
@@ -99,12 +110,50 @@ python tools/test.py \
 
 ## 4. 텍스트 쿼리 하이라이트
 
-추출한 특징을 사용하여 텍스트 쿼리로 영역을 하이라이트:
+### 방법 1: 전체 파이프라인 자동 실행 (권장)
+
+한 번에 특징 추출부터 하이라이트까지 모두 실행:
+
+```bash
+cd /home/stevenlair/LAIR/AGI-Memory/SceneSplat
+
+bash scripts/run_text_query_pipeline.sh \
+    --scene-path /media/stevenlair/Data_exFAT/SceneSplat/custom_scenes/my_scene \
+    --query "pen on desk" \
+    --threshold 0.25 \
+    --visualize
+```
+
+**옵션:**
+- `--checkpoint PATH`: 체크포인트 경로 (기본값 사용 시 생략 가능)
+- `--threshold FLOAT`: 유사도 임계값 (기본: 0.25)
+- `--top-k-ratio FLOAT`: 상위 k%만 선택 (예: 0.1)
+- `--visualize`: Open3D로 결과 시각화
+
+### 방법 2: 수동 실행 (단계별)
+
+#### 4.1 특징 추출
 
 ```bash
 conda activate scene_splat
 cd /home/stevenlair/LAIR/AGI-Memory/SceneSplat
 
+python tools/test.py \
+    --config-file configs/custom/text_query_demo.py \
+    --options \
+        test_only=True \
+        test.skip_eval=True \
+        test.save_feat=True \
+        data.test.data_root=/media/stevenlair/Data_exFAT/SceneSplat/custom_scenes \
+        data.test.split=my_scene \
+        weight=/media/stevenlair/Data_exFAT/SceneSplat/checkpoints/lang-pretrain-concat/model_best.pth \
+        save_path=/media/stevenlair/Data_exFAT/SceneSplat/runs/my_scene_features \
+    --num-gpus 1
+```
+
+#### 4.2 텍스트 쿼리 하이라이트
+
+```bash
 python tools/query_highlight_demo.py \
     --scene-path /media/stevenlair/Data_exFAT/SceneSplat/custom_scenes/my_scene \
     --feat-path /media/stevenlair/Data_exFAT/SceneSplat/runs/my_scene_features/result_GenericGSDataset/feat/my_scene_feat.pth \
@@ -197,8 +246,25 @@ python tools/query_highlight_demo.py \
 
 ## 7. 예제: "책상 위에 있는 펜" 찾기
 
+### 빠른 방법 (자동화 스크립트)
+
+```bash
+cd /home/stevenlair/LAIR/AGI-Memory/SceneSplat
+
+bash scripts/run_text_query_pipeline.sh \
+    --scene-path /media/stevenlair/Data_exFAT/SceneSplat/custom_scenes/office_scene \
+    --query "pen on desk" \
+    --threshold 0.25 \
+    --visualize
+```
+
+### 수동 방법 (단계별)
+
 ```bash
 # 1. 특징 추출
+conda activate scene_splat
+cd /home/stevenlair/LAIR/AGI-Memory/SceneSplat
+
 python tools/test.py \
     --config-file configs/custom/text_query_demo.py \
     --options \
